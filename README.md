@@ -1,44 +1,46 @@
 # vps-traffic-guard
 
-Lightweight Bash traffic monitor for Linux VPS servers, including regular VPS
-providers and Oracle Cloud instances.
+轻量级 VPS 流量监控脚本，适配普通 Linux VPS 和甲骨文 Oracle Cloud VPS。
 
-It reads RX/TX counters from `/sys/class/net`, tracks monthly quota usage, and
-sends Telegram Bot or Bark notifications for alerts plus daily, weekly, and
-monthly reports.
+脚本从 `/sys/class/net` 读取网卡 RX/TX 计数，按月统计上传+下载总流量，并通过 Telegram Bot 或 Bark 推送告警、日报、周报、月报。
 
-## Features
+## 功能
 
-- Bash only, no Python runtime required.
-- One-command interactive installer.
-- Auto-detects the primary network interface.
-- Supports Telegram Bot or Bark push notifications.
-- Sends quota alerts at `ALERT_PERCENT`, default `80`.
-- Sends another alert after monthly usage reaches `100%`.
-- Supports daily, weekly, and monthly reports.
-- Stores only traffic counters and alert state, never push secrets.
+- Bash 实现，无需 Python。
+- 一键中文交互安装。
+- 自动识别主网卡，普通 VPS / 甲骨文 VPS 默认用 `auto` 即可。
+- 支持 Telegram Bot 或 Bark 二选一推送。
+- 到达月流量阈值时告警，默认 `80%`。
+- 超过 `100%` 时再次告警。
+- 支持自定义日报、周报、月报推送时间。
+- 不监听入站端口，不需要开放 VPS 防火墙端口。
+- 只需要 VPS 能出站访问 HTTPS `443`，用于 Telegram/Bark 推送。
+- 状态文件只保存流量计数和告警状态，不保存额外密钥副本。
 
-## One-command install
+## 一键安装
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ORyong/vps-traffic-guard/master/install.sh)
 ```
 
-The installer asks step by step for:
+安装器会一步一步询问：
 
-- VPS display name.
-- Monthly traffic quota in GiB.
-- Alert percentage, such as `80`.
-- Network interface, normally `auto`.
-- Alert check interval.
-- Daily, weekly, and monthly report times.
-- Push channel: Telegram Bot or Bark.
-- Telegram Bot token/chat id or Bark URL.
+- 这台 VPS 叫什么名字。
+- 月流量限额是多少 GiB。
+- 用到百分之多少时告警。
+- 监控哪个网卡，默认 `auto`。
+- 时区，默认 `Asia/Shanghai`。
+- 确认端口/网络：不监听入站端口，只需要出站 HTTPS `443`。
+- 告警检查频率：每小时或每 30 分钟。
+- 日报什么时候推送。
+- 周报星期几、什么时候推送。
+- 月报每月几号、什么时候推送。
+- 推送方式：Telegram Bot 或 Bark。
+- Telegram Bot token/chat id，或 Bark URL。
 
-After installation, it writes `/etc/vps-traffic-monitor.env`, installs
-`/usr/local/bin/vps-traffic-monitor`, tests the push channel, and adds cron jobs.
+安装完成后会写入 `/etc/vps-traffic-monitor.env`，安装命令到 `/usr/local/bin/vps-traffic-monitor`，添加 cron，并立即测试推送。
 
-## Manual install
+## 手动安装
 
 ```bash
 sudo install -m 755 vps-traffic-monitor.sh /usr/local/bin/vps-traffic-monitor
@@ -46,34 +48,27 @@ sudo install -m 600 vps-traffic-monitor.env.example /etc/vps-traffic-monitor.env
 sudo editor /etc/vps-traffic-monitor.env
 ```
 
-Test the push channel:
+测试推送：
 
 ```bash
 vps-traffic-monitor --config /etc/vps-traffic-monitor.env --test-push
 ```
 
-Test traffic detection without sending a push:
+测试流量读取，不真实推送：
 
 ```bash
 vps-traffic-monitor --config /etc/vps-traffic-monitor.env --dry-run --check
 ```
 
-## Cron
+## 配置项
 
-```cron
-5 * * * * /usr/local/bin/vps-traffic-monitor --config /etc/vps-traffic-monitor.env --check
-0 9 * * * /usr/local/bin/vps-traffic-monitor --config /etc/vps-traffic-monitor.env --daily
-5 9 * * 1 /usr/local/bin/vps-traffic-monitor --config /etc/vps-traffic-monitor.env --weekly
-10 9 1 * * /usr/local/bin/vps-traffic-monitor --config /etc/vps-traffic-monitor.env --monthly
-```
+复制 `vps-traffic-monitor.env.example` 后配置：
 
-## Configuration
-
-Copy `vps-traffic-monitor.env.example` and set:
-
-- `VPS_NAME` for the display name in notifications.
-- `PUSH_CHANNEL=telegram` with `TG_BOT_TOKEN` and `TG_CHAT_ID`.
-- `PUSH_CHANNEL=bark` with `BARK_URL`.
-- `TRAFFIC_LIMIT_GB` for the monthly quota.
-- `ALERT_PERCENT` for the warning threshold.
-- `IFACE=auto` unless you need to pin a specific interface.
+- `VPS_NAME`：通知里显示的 VPS 名称。
+- `PUSH_CHANNEL=telegram`：使用 Telegram Bot。
+- `TG_BOT_TOKEN` 和 `TG_CHAT_ID`：Telegram 推送信息。
+- `PUSH_CHANNEL=bark`：使用 Bark。
+- `BARK_URL`：Bark 地址，支持自建端口，例如 `https://push.example.com:8080/KEY`。
+- `TRAFFIC_LIMIT_GB`：月流量限额，单位 GiB。
+- `ALERT_PERCENT`：告警百分比。
+- `IFACE=auto`：自动识别主网卡；也可以指定 `ens3`、`eth0` 等。

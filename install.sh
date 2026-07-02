@@ -9,7 +9,7 @@ CRON_MARK_END="# END vps-traffic-guard"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
-    printf 'ERROR: missing command: %s\n' "$1" >&2
+    printf '错误：缺少命令：%s\n' "$1" >&2
     exit 1
   }
 }
@@ -20,147 +20,206 @@ run_as_root() {
   elif command -v sudo >/dev/null 2>&1; then
     sudo "$@"
   else
-    printf 'ERROR: this installer needs root privileges. Re-run as root or install sudo.\n' >&2
+    printf '错误：安装需要 root 权限。请用 root 用户运行，或者安装 sudo。\n' >&2
     exit 1
   fi
 }
 
-prompt_default() {
-  local var_name="$1"
+ask_default() {
+  local out_var="$1"
   local label="$2"
   local default_value="$3"
-  local value
-  read -r -p "$label [$default_value]: " value
-  if [[ -z "$value" ]]; then
-    value="$default_value"
+  local input=""
+  read -r -p "$label [$default_value]: " input
+  if [[ -z "$input" ]]; then
+    input="$default_value"
   fi
-  printf -v "$var_name" '%s' "$value"
+  printf -v "$out_var" '%s' "$input"
 }
 
-prompt_required() {
-  local var_name="$1"
+ask_required() {
+  local out_var="$1"
   local label="$2"
-  local value
+  local input=""
   while true; do
-    read -r -p "$label: " value
-    if [[ -n "$value" ]]; then
-      printf -v "$var_name" '%s' "$value"
+    read -r -p "$label: " input
+    if [[ -n "$input" ]]; then
+      printf -v "$out_var" '%s' "$input"
       return 0
     fi
-    printf 'This value is required.\n'
+    printf '这个值不能为空。\n'
   done
+}
+
+ask_yes_no() {
+  local out_var="$1"
+  local label="$2"
+  local default_value="$3"
+  local input=""
+  while true; do
+    read -r -p "$label [$default_value]: " input
+    input="${input:-$default_value}"
+    case "$input" in
+      y|Y|yes|YES|Yes|是)
+        printf -v "$out_var" '%s' "yes"
+        return 0
+        ;;
+      n|N|no|NO|No|否)
+        printf -v "$out_var" '%s' "no"
+        return 0
+        ;;
+      *)
+        printf '请输入 y 或 n。\n'
+        ;;
+    esac
+  done
+}
+
+ask_uint() {
+  local out_var="$1"
+  local label="$2"
+  local default_value="$3"
+  local answer=""
+  while true; do
+    ask_default answer "$label" "$default_value"
+    case "$answer" in
+      ''|*[!0-9]*)
+        printf '请输入整数。\n'
+        ;;
+      0)
+        printf '请输入大于 0 的数字。\n'
+        ;;
+      *)
+        printf -v "$out_var" '%s' "$answer"
+        return 0
+        ;;
+    esac
+  done
+}
+
+
+ask_percent() {
+  local out_var="$1"
+  local label="$2"
+  local default_value="$3"
+  local percent_value=""
+  while true; do
+    ask_uint percent_value "$label" "$default_value"
+    if (( percent_value >= 1 && percent_value <= 100 )); then
+      printf -v "$out_var" '%s' "$percent_value"
+      return 0
+    fi
+    printf '请输入 1 到 100 之间的百分比。\n'
+  done
+}
+is_hour() {
+  case "${1:-}" in
+    ''|*[!0-9]*) return 1 ;;
+    *) (( 10#$1 >= 0 && 10#$1 <= 23 )) ;;
+  esac
 }
 
 is_minute() {
   case "${1:-}" in
     ''|*[!0-9]*) return 1 ;;
-    *) (( $1 >= 0 && $1 <= 59 )) ;;
+    *) (( 10#$1 >= 0 && 10#$1 <= 59 )) ;;
   esac
 }
 
-is_hour() {
-  case "${1:-}" in
-    ''|*[!0-9]*) return 1 ;;
-    *) (( $1 >= 0 && $1 <= 23 )) ;;
-  esac
-}
-
-is_weekday() {
-  case "${1:-}" in
-    ''|*[!0-9]*) return 1 ;;
-    *) (( $1 >= 1 && $1 <= 7 )) ;;
-  esac
-}
-
-is_monthday() {
-  case "${1:-}" in
-    ''|*[!0-9]*) return 1 ;;
-    *) (( $1 >= 1 && $1 <= 28 )) ;;
-  esac
-}
-
-prompt_time() {
+ask_time() {
   local hour_var="$1"
   local minute_var="$2"
   local label="$3"
   local default_value="$4"
-  local value hour minute
+  local answer="" hour="" minute=""
   while true; do
-    prompt_default value "$label, HH:MM" "$default_value"
-    case "$value" in
-      [0-9]:[0-5][0-9]) hour="${value%%:*}"; minute="${value#*:}" ;;
-      [0-2][0-9]:[0-5][0-9]) hour="${value%%:*}"; minute="${value#*:}" ;;
-      *) printf 'Please enter time as HH:MM, for example 09:00.\n'; continue ;;
-    esac
-    hour=$((10#$hour))
-    minute=$((10#$minute))
-    if is_hour "$hour" && is_minute "$minute"; then
-      printf -v "$hour_var" '%s' "$hour"
-      printf -v "$minute_var" '%s' "$minute"
-      return 0
-    fi
-    printf 'Please enter a valid 24-hour time.\n'
-  done
-}
-
-prompt_weekday() {
-  local var_name="$1"
-  local value
-  while true; do
-    prompt_default value "Weekly report day, 1=Mon ... 7=Sun" "1"
-    if is_weekday "$value"; then
-      printf -v "$var_name" '%s' "$value"
-      return 0
-    fi
-    printf 'Please enter 1 to 7.\n'
-  done
-}
-
-prompt_monthday() {
-  local var_name="$1"
-  local value
-  while true; do
-    prompt_default value "Monthly report day, 1-28" "1"
-    if is_monthday "$value"; then
-      printf -v "$var_name" '%s' "$value"
-      return 0
-    fi
-    printf 'Please enter 1 to 28. 29-31 are avoided so every month works.\n'
-  done
-}
-
-prompt_check_interval() {
-  local value
-  while true; do
-    prompt_default value "Alert check interval: 1=hourly, 2=every 30 minutes" "1"
-    case "$value" in
-      1) CHECK_CRON_MINUTE="5"; CHECK_CRON_HOUR="*"; return 0 ;;
-      2) CHECK_CRON_MINUTE="*/30"; CHECK_CRON_HOUR="*"; return 0 ;;
-      *) printf 'Please choose 1 or 2.\n' ;;
-    esac
-  done
-}
-
-prompt_uint() {
-  local var_name="$1"
-  local label="$2"
-  local default_value="$3"
-  local value
-  while true; do
-    prompt_default value "$label" "$default_value"
-    case "$value" in
-      ''|*[!0-9]*)
-        printf 'Please enter an integer.\n'
-        ;;
-      0)
-        printf 'Please enter a value greater than 0.\n'
+    ask_default answer "$label，格式 HH:MM" "$default_value"
+    case "$answer" in
+      [0-9]:[0-5][0-9]|[0-2][0-9]:[0-5][0-9])
+        hour="${answer%%:*}"
+        minute="${answer#*:}"
         ;;
       *)
-        printf -v "$var_name" '%s' "$value"
+        printf '请输入 24 小时时间，例如 09:00。\n'
+        continue
+        ;;
+    esac
+    if is_hour "$hour" && is_minute "$minute"; then
+      printf -v "$hour_var" '%s' "$((10#$hour))"
+      printf -v "$minute_var" '%s' "$((10#$minute))"
+      return 0
+    fi
+    printf '时间不合法，请输入 00:00 到 23:59。\n'
+  done
+}
+
+ask_weekday() {
+  local out_var="$1"
+  local answer=""
+  while true; do
+    ask_default answer "周报星期几推送，1=周一 ... 7=周日" "1"
+    case "$answer" in
+      [1-7])
+        printf -v "$out_var" '%s' "$answer"
         return 0
+        ;;
+      *)
+        printf '请输入 1 到 7。\n'
         ;;
     esac
   done
+}
+
+ask_monthday() {
+  local out_var="$1"
+  local answer=""
+  while true; do
+    ask_default answer "月报每月几号推送，1-28" "1"
+    case "$answer" in
+      [1-9]|1[0-9]|2[0-8])
+        printf -v "$out_var" '%s' "$answer"
+        return 0
+        ;;
+      *)
+        printf '请输入 1 到 28。为保证每个月都能执行，这里不使用 29-31。\n'
+        ;;
+    esac
+  done
+}
+
+ask_check_interval() {
+  local answer=""
+  while true; do
+    ask_default answer "告警检查频率：1=每小时，2=每 30 分钟" "1"
+    case "$answer" in
+      1)
+        CHECK_CRON_MINUTE="5"
+        CHECK_CRON_HOUR="*"
+        return 0
+        ;;
+      2)
+        CHECK_CRON_MINUTE="*/30"
+        CHECK_CRON_HOUR="*"
+        return 0
+        ;;
+      *)
+        printf '请输入 1 或 2。\n'
+        ;;
+    esac
+  done
+}
+
+confirm_network() {
+  printf '\n端口/网络确认：\n'
+  printf '  - 本脚本不监听任何入站端口。\n'
+  printf '  - 不需要开放 VPS 防火墙端口。\n'
+  printf '  - Telegram/Bark 推送需要 VPS 能出站访问 HTTPS 443。\n'
+  local answer=""
+  ask_yes_no answer "确认这台 VPS 允许出站 HTTPS 443 吗？y=确认，n=先退出" "y"
+  if [[ "$answer" != "yes" ]]; then
+    printf '已退出。请先确认 VPS 能访问 Telegram/Bark 所需网络后再安装。\n'
+    exit 1
+  fi
 }
 
 escape_config_value() {
@@ -168,7 +227,7 @@ escape_config_value() {
 }
 
 write_config() {
-  local tmp
+  local tmp=""
   tmp="$(mktemp)"
   {
     printf '# Generated by vps-traffic-guard install.sh\n'
@@ -184,17 +243,17 @@ write_config() {
     printf 'TIMEZONE=%s\n' "$TIMEZONE"
   } > "$tmp"
   run_as_root install -m 600 "$tmp" "$CONFIG_FILE"
+  run_as_root chmod 600 "$CONFIG_FILE"
   rm -f "$tmp"
 }
 
 install_script() {
-  local source_file
+  local source_file="" tmp=""
   source_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vps-traffic-monitor.sh"
   if [[ -f "$source_file" ]]; then
     run_as_root install -m 755 "$source_file" "$INSTALL_BIN"
   else
     need_cmd curl
-    local tmp
     tmp="$(mktemp)"
     curl -fsSL "$REPO_RAW_BASE/vps-traffic-monitor.sh" -o "$tmp"
     run_as_root install -m 755 "$tmp" "$INSTALL_BIN"
@@ -203,7 +262,7 @@ install_script() {
 }
 
 install_cron() {
-  local current tmp
+  local current="" tmp=""
   tmp="$(mktemp)"
   current="$(mktemp)"
   crontab -l > "$current" 2>/dev/null || true
@@ -227,62 +286,91 @@ install_cron() {
   rm -f "$tmp" "$current"
 }
 
+choose_push_channel() {
+  local answer=""
+  while true; do
+    ask_default answer "推送方式：1=Telegram Bot，2=Bark" "1"
+    case "$answer" in
+      1)
+        PUSH_CHANNEL="telegram"
+        ask_required TG_BOT_TOKEN "Telegram Bot token"
+        ask_required TG_CHAT_ID "Telegram chat id"
+        BARK_URL=""
+        return 0
+        ;;
+      2)
+        PUSH_CHANNEL="bark"
+        printf 'Bark URL 可以是官方地址，也可以是自建地址；自建端口直接写进 URL，例如 https://push.example.com:8080/KEY\n'
+        ask_required BARK_URL "Bark URL"
+        TG_BOT_TOKEN=""
+        TG_CHAT_ID=""
+        return 0
+        ;;
+      *)
+        printf '请输入 1 或 2。\n'
+        ;;
+    esac
+  done
+}
+
+print_summary() {
+  printf '\n即将安装以下配置：\n'
+  printf '  VPS 名称：%s\n' "$VPS_NAME"
+  printf '  月流量限额：%s GiB\n' "$TRAFFIC_LIMIT_GB"
+  printf '  告警阈值：%s%%\n' "$ALERT_PERCENT"
+  printf '  网卡：%s\n' "$IFACE"
+  printf '  时区：%s\n' "$TIMEZONE"
+  printf '  告警检查 cron：%s %s * * *\n' "$CHECK_CRON_MINUTE" "$CHECK_CRON_HOUR"
+  printf '  日报 cron：%s %s * * *\n' "$DAILY_MINUTE" "$DAILY_HOUR"
+  printf '  周报 cron：%s %s * * %s\n' "$WEEKLY_MINUTE" "$WEEKLY_HOUR" "$WEEKLY_DAY"
+  printf '  月报 cron：%s %s %s * *\n' "$MONTHLY_MINUTE" "$MONTHLY_HOUR" "$MONTHLY_DAY"
+  printf '  推送方式：%s\n' "$PUSH_CHANNEL"
+  printf '  入站端口：不监听、不开放\n'
+  printf '  出站端口：需要 HTTPS 443\n'
+}
+
 main() {
   need_cmd awk
   need_cmd crontab
   need_cmd sed
 
-  printf 'vps-traffic-guard interactive installer\n\n'
+  printf 'vps-traffic-guard 中文交互安装器\n\n'
 
+  local default_name="" confirm_install=""
   default_name="$(hostname 2>/dev/null || printf 'my-vps')"
-  prompt_default VPS_NAME "VPS display name" "$default_name"
-  prompt_uint TRAFFIC_LIMIT_GB "Monthly traffic quota in GiB" "1024"
-  prompt_uint ALERT_PERCENT "Alert when monthly usage reaches percent" "80"
-  prompt_default IFACE "Network interface, use auto for most VPS/Oracle VPS" "auto"
-  prompt_default TIMEZONE "Timezone" "Asia/Shanghai"
-  prompt_check_interval
-  prompt_time DAILY_HOUR DAILY_MINUTE "Daily report time" "09:00"
-  prompt_weekday WEEKLY_DAY
-  prompt_time WEEKLY_HOUR WEEKLY_MINUTE "Weekly report time" "09:05"
-  prompt_monthday MONTHLY_DAY
-  prompt_time MONTHLY_HOUR MONTHLY_MINUTE "Monthly report time" "09:10"
+  ask_default VPS_NAME "这台 VPS 叫什么名字？通知里会显示这个名字" "$default_name"
+  ask_uint TRAFFIC_LIMIT_GB "月流量限额是多少 GiB？例如 1024 表示 1 TiB" "1024"
+  ask_percent ALERT_PERCENT "月流量用到百分之多少时告警？例如 80" "80"
+  ask_default IFACE "监控哪个网卡？普通/甲骨文 VPS 一般用 auto" "auto"
+  ask_default TIMEZONE "时区" "Asia/Shanghai"
+  confirm_network
+  ask_check_interval
+  ask_time DAILY_HOUR DAILY_MINUTE "日报什么时候推送" "09:00"
+  ask_weekday WEEKLY_DAY
+  ask_time WEEKLY_HOUR WEEKLY_MINUTE "周报什么时候推送" "09:05"
+  ask_monthday MONTHLY_DAY
+  ask_time MONTHLY_HOUR MONTHLY_MINUTE "月报什么时候推送" "09:10"
+  choose_push_channel
 
-  while true; do
-    read -r -p "Push channel: 1) Telegram Bot  2) Bark [1]: " push_choice
-    push_choice="${push_choice:-1}"
-    case "$push_choice" in
-      1)
-        PUSH_CHANNEL="telegram"
-        prompt_required TG_BOT_TOKEN "Telegram bot token"
-        prompt_required TG_CHAT_ID "Telegram chat id"
-        BARK_URL=""
-        break
-        ;;
-      2)
-        PUSH_CHANNEL="bark"
-        prompt_required BARK_URL "Bark URL, for example https://api.day.app/YOUR_KEY"
-        TG_BOT_TOKEN=""
-        TG_CHAT_ID=""
-        break
-        ;;
-      *)
-        printf 'Please choose 1 or 2.\n'
-        ;;
-    esac
-  done
+  print_summary
+  ask_yes_no confirm_install "确认安装并写入 cron 吗？y=安装，n=退出" "y"
+  if [[ "$confirm_install" != "yes" ]]; then
+    printf '已取消安装，没有写入配置或 cron。\n'
+    exit 0
+  fi
 
   install_script
   write_config
   install_cron
 
-  printf '\nInstalled.\n'
-  printf 'Config: %s\n' "$CONFIG_FILE"
-  printf 'Command: %s\n\n' "$INSTALL_BIN"
-  printf 'Testing push channel now...\n'
+  printf '\n安装完成。\n'
+  printf '配置文件：%s\n' "$CONFIG_FILE"
+  printf '命令路径：%s\n\n' "$INSTALL_BIN"
+  printf '正在测试推送通道...\n'
   "$INSTALL_BIN" --config "$CONFIG_FILE" --test-push
-  printf '\nTesting traffic detection without sending another push...\n'
+  printf '\n正在测试流量读取，dry-run 不会再次推送...\n'
   "$INSTALL_BIN" --config "$CONFIG_FILE" --dry-run --check || true
-  printf '\nDone. Cron has been installed for hourly checks plus daily, weekly, and monthly reports.\n'
+  printf '\n完成。已安装 cron：告警检查、日报、周报、月报。\n'
 }
 
 main "$@"
