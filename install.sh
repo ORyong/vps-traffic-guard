@@ -157,7 +157,7 @@ ask_weekday() {
   local out_var="$1"
   local answer=""
   while true; do
-    ask_default answer "周报星期几推送，1=周一 ... 7=周日" "1"
+    ask_default answer "周报推送日，1=周一 ... 7=周日" "1"
     case "$answer" in
       [1-7])
         printf -v "$out_var" '%s' "$answer"
@@ -174,7 +174,7 @@ ask_monthday() {
   local out_var="$1"
   local answer=""
   while true; do
-    ask_default answer "月报每月几号推送，1-28" "1"
+    ask_default answer "月报推送日期，1-28" "1"
     case "$answer" in
       [1-9]|1[0-9]|2[0-8])
         printf -v "$out_var" '%s' "$answer"
@@ -190,7 +190,7 @@ ask_monthday() {
 ask_check_interval() {
   local answer=""
   while true; do
-    ask_default answer "告警检查频率：1=每小时，2=每 30 分钟" "1"
+    ask_default answer "告警检查间隔：1=每小时，2=每 30 分钟" "1"
     case "$answer" in
       1)
         CHECK_CRON_MINUTE="5"
@@ -289,7 +289,7 @@ install_cron() {
 choose_push_channel() {
   local answer=""
   while true; do
-    ask_default answer "推送方式：1=Telegram Bot，2=Bark" "1"
+    ask_default answer "推送通道：1=Telegram Bot，2=Bark" "1"
     case "$answer" in
       1)
         PUSH_CHANNEL="telegram"
@@ -334,28 +334,28 @@ main() {
   need_cmd crontab
   need_cmd sed
 
-  printf 'vps-traffic-guard 中文交互安装器\n\n'
+  printf 'vps-traffic-guard 安装向导\n\n'
 
   local default_name="" confirm_install=""
   default_name="$(hostname 2>/dev/null || printf 'my-vps')"
-  ask_default VPS_NAME "这台 VPS 叫什么名字？通知里会显示这个名字" "$default_name"
-  ask_uint TRAFFIC_LIMIT_GB "月流量限额是多少 GiB？例如 1024 表示 1 TiB" "1024"
-  ask_percent ALERT_PERCENT "月流量用到百分之多少时告警？例如 80" "80"
-  ask_default IFACE "监控哪个网卡？普通/甲骨文 VPS 一般用 auto" "auto"
+  ask_default VPS_NAME "服务器名称（用于通知展示）" "$default_name"
+  ask_uint TRAFFIC_LIMIT_GB "月流量限额 GiB（1024 约等于 1 TiB）" "1024"
+  ask_percent ALERT_PERCENT "告警阈值百分比" "80"
+  ask_default IFACE "监控网卡（普通/甲骨文 VPS 建议 auto）" "auto"
   ask_default TIMEZONE "时区" "Asia/Shanghai"
   confirm_network
   ask_check_interval
-  ask_time DAILY_HOUR DAILY_MINUTE "日报什么时候推送" "09:00"
+  ask_time DAILY_HOUR DAILY_MINUTE "日报推送时间" "09:00"
   ask_weekday WEEKLY_DAY
-  ask_time WEEKLY_HOUR WEEKLY_MINUTE "周报什么时候推送" "09:05"
+  ask_time WEEKLY_HOUR WEEKLY_MINUTE "周报推送时间" "09:05"
   ask_monthday MONTHLY_DAY
-  ask_time MONTHLY_HOUR MONTHLY_MINUTE "月报什么时候推送" "09:10"
+  ask_time MONTHLY_HOUR MONTHLY_MINUTE "月报推送时间" "09:10"
   choose_push_channel
 
   print_summary
-  ask_yes_no confirm_install "确认安装并写入 cron 吗？y=安装，n=退出" "y"
+  ask_yes_no confirm_install "确认写入配置并安装 cron？y=确认，n=取消" "y"
   if [[ "$confirm_install" != "yes" ]]; then
-    printf '已取消安装，没有写入配置或 cron。\n'
+    printf '已取消：未写入配置，未安装 cron。\n'
     exit 0
   fi
 
@@ -366,11 +366,11 @@ main() {
   printf '\n安装完成。\n'
   printf '配置文件：%s\n' "$CONFIG_FILE"
   printf '命令路径：%s\n\n' "$INSTALL_BIN"
-  printf '正在测试推送通道...\n'
+  printf '测试推送通道...\n'
   "$INSTALL_BIN" --config "$CONFIG_FILE" --test-push
-  printf '\n正在测试流量读取，dry-run 不会再次推送...\n'
+  printf '\n测试流量读取（dry-run，不会重复推送）...\n'
   "$INSTALL_BIN" --config "$CONFIG_FILE" --dry-run --check || true
-  printf '\n完成。已安装 cron：告警检查、日报、周报、月报。\n'
+  printf '\n完成：已安装告警检查、日报、周报、月报 cron。\n'
 }
 
 main "$@"

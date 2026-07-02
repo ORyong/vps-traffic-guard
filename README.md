@@ -25,16 +25,16 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ORyong/vps-traffic-guard/mas
 
 安装器会一步一步询问：
 
-- 这台 VPS 叫什么名字。
-- 月流量限额是多少 GiB。
-- 用到百分之多少时告警。
+- 服务器名称（用于通知展示）。
+- 月流量限额 GiB。
+- 告警阈值百分比。
 - 监控哪个网卡，默认 `auto`。
 - 时区，默认 `Asia/Shanghai`。
 - 确认端口/网络：不监听入站端口，只需要出站 HTTPS `443`。
 - 告警检查频率：每小时或每 30 分钟。
-- 日报什么时候推送。
-- 周报星期几、什么时候推送。
-- 月报每月几号、什么时候推送。
+- 日报推送时间。
+- 周报推送日和推送时间。
+- 月报推送日期和推送时间。
 - 推送方式：Telegram Bot 或 Bark。
 - Telegram Bot token/chat id，或 Bark URL。
 
