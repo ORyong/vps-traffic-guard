@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_RAW_BASE="https://raw.githubusercontent.com/ORyong/vps-traffic-guard/master"
 INSTALL_BIN="/usr/local/bin/vps-traffic-monitor"
+MENU_BIN="/usr/local/bin/vtg"
 CONFIG_FILE="/etc/vps-traffic-monitor.env"
 CRON_MARK_BEGIN="# BEGIN vps-traffic-guard"
 CRON_MARK_END="# END vps-traffic-guard"
@@ -261,6 +262,70 @@ install_script() {
   fi
 }
 
+
+install_menu() {
+  local source_file="" tmp=""
+  source_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vtg"
+  if [[ -f "$source_file" ]]; then
+    run_as_root install -m 755 "$source_file" "$MENU_BIN"
+  else
+    need_cmd curl
+    tmp="$(mktemp)"
+    curl -fsSL "$REPO_RAW_BASE/vtg" -o "$tmp"
+    run_as_root install -m 755 "$tmp" "$MENU_BIN"
+    rm -f "$tmp"
+  fi
+}
+run_upgrade() {
+  local do_test="" do_report=""
+  install_script
+  install_menu
+  printf '\n升级完成：已更新 %s 和 %s\n' "$INSTALL_BIN" "$MENU_BIN"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    ask_yes_no do_test "是否立即测试推送通道？y=测试，n=跳过" "y"
+    if [[ "$do_test" == "yes" ]]; then
+      "$INSTALL_BIN" --config "$CONFIG_FILE" --test-push
+    fi
+    ask_yes_no do_report "是否立即推送一份综合流量报告？y=推送，n=跳过" "y"
+    if [[ "$do_report" == "yes" ]]; then
+      "$INSTALL_BIN" --config "$CONFIG_FILE" --report
+    fi
+  else
+    printf '未找到配置文件：%s。仅完成脚本升级。\n' "$CONFIG_FILE"
+  fi
+}
+
+handle_existing_install() {
+  local choice=""
+  if [[ ! -x "$INSTALL_BIN" && ! -f "$CONFIG_FILE" ]]; then
+    return 0
+  fi
+
+  printf '检测到已有安装：\n'
+  [[ -x "$INSTALL_BIN" ]] && printf '  - 命令：%s\n' "$INSTALL_BIN"
+  [[ -f "$CONFIG_FILE" ]] && printf '  - 配置：%s\n' "$CONFIG_FILE"
+  while true; do
+    ask_default choice "操作：1=升级脚本并保留配置，2=重新配置并覆盖 cron，3=退出" "1"
+    case "$choice" in
+      1)
+        run_upgrade
+        exit 0
+        ;;
+      2)
+        printf '将重新生成配置并覆盖 vps-traffic-guard 管理的 cron。\n'
+        return 0
+        ;;
+      3)
+        printf '已退出。\n'
+        exit 0
+        ;;
+      *)
+        printf '请输入 1、2 或 3。\n'
+        ;;
+    esac
+  done
+}
+
 install_cron() {
   local current="" tmp=""
   tmp="$(mktemp)"
@@ -335,6 +400,7 @@ main() {
   need_cmd sed
 
   printf 'vps-traffic-guard 安装向导\n\n'
+  handle_existing_install
 
   local default_name="" confirm_install=""
   default_name="$(hostname 2>/dev/null || printf 'my-vps')"
@@ -360,12 +426,14 @@ main() {
   fi
 
   install_script
+  install_menu
   write_config
   install_cron
 
   printf '\n安装完成。\n'
   printf '配置文件：%s\n' "$CONFIG_FILE"
-  printf '命令路径：%s\n\n' "$INSTALL_BIN"
+  printf '命令路径：%s\n' "$INSTALL_BIN"
+  printf '菜单命令：%s\n\n' "$MENU_BIN"
   printf '测试推送通道...\n'
   "$INSTALL_BIN" --config "$CONFIG_FILE" --test-push
   printf '\n测试流量读取（dry-run，不会重复推送）...\n'

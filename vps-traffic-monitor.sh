@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 CONFIG_FILE="${VPS_TRAFFIC_CONFIG:-}"
 MODE=""
@@ -26,6 +26,7 @@ Usage:
   vps-traffic-monitor.sh --config /etc/vps-traffic-monitor.env --daily
   vps-traffic-monitor.sh --config /etc/vps-traffic-monitor.env --weekly
   vps-traffic-monitor.sh --config /etc/vps-traffic-monitor.env --monthly
+  vps-traffic-monitor.sh --config /etc/vps-traffic-monitor.env --report
   vps-traffic-monitor.sh --config /etc/vps-traffic-monitor.env --test-push
 
 Options:
@@ -35,6 +36,7 @@ Options:
   --daily         Send a daily traffic report.
   --weekly        Send a weekly traffic report.
   --monthly       Send a monthly traffic report.
+  --report        Send an immediate traffic report.
   --test-push     Test the configured push channel without changing state.
   --help          Show this help.
 EOF
@@ -111,7 +113,7 @@ parse_args() {
         DRY_RUN=1
         shift
         ;;
-      --check|--daily|--weekly|--monthly|--test-push)
+      --check|--daily|--weekly|--monthly|--report|--test-push)
         [[ -z "$MODE" ]] || die "only one mode can be selected"
         MODE="${1#--}"
         shift
@@ -130,7 +132,7 @@ parse_args() {
     esac
   done
 
-  [[ -n "$MODE" ]] || die "select one mode: --check, --daily, --weekly, --monthly, or --test-push"
+  [[ -n "$MODE" ]] || die "select one mode: --check, --daily, --weekly, --monthly, --report, or --test-push"
 }
 
 validate_config() {
@@ -439,6 +441,32 @@ Month total: $(bytes_to_gib "$month_total") / ${TRAFFIC_LIMIT_GB} GiB (${pct}%)
 EOF
 }
 
+immediate_report_body() {
+  local iface="$1"
+  local day_total=$(( DAY_RX + DAY_TX ))
+  local week_total=$(( WEEK_RX + WEEK_TX ))
+  local month_total=$(( MONTH_RX + MONTH_TX ))
+  local pct
+  pct="$(percent_used "$month_total" "$TRAFFIC_LIMIT_GB")"
+  cat <<EOF
+综合流量报告
+Host: $(hostname_text)
+Time: $(now_text)
+Interface: $iface
+
+今日：$(bytes_to_gib "$day_total")
+  RX: $(bytes_to_gib "$DAY_RX")
+  TX: $(bytes_to_gib "$DAY_TX")
+
+本周：$(bytes_to_gib "$week_total")
+  RX: $(bytes_to_gib "$WEEK_RX")
+  TX: $(bytes_to_gib "$WEEK_TX")
+
+本月：$(bytes_to_gib "$month_total") / ${TRAFFIC_LIMIT_GB} GiB (${pct}%)
+  RX: $(bytes_to_gib "$MONTH_RX")
+  TX: $(bytes_to_gib "$MONTH_TX")
+EOF
+}
 period_report_body() {
   local report_kind="$1"
   local iface="$2"
@@ -588,6 +616,11 @@ main() {
     monthly)
       title="VPS monthly traffic report"
       body="$(period_report_body monthly "$iface")"
+      send_notification "$title" "$body"
+      ;;
+    report)
+      title="VPS 综合流量报告"
+      body="$(immediate_report_body "$iface")"
       send_notification "$title" "$body"
       ;;
     *)

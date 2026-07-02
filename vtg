@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_BIN="/usr/local/bin/vps-traffic-monitor"
+CONFIG_FILE="/etc/vps-traffic-monitor.env"
+INSTALLER_URL="https://raw.githubusercontent.com/ORyong/vps-traffic-guard/master/install.sh"
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || {
+    printf '错误：缺少命令：%s\n' "$1" >&2
+    exit 1
+  }
+}
+
+run_installer() {
+  need_cmd curl
+  bash <(curl -fsSL "$INSTALLER_URL")
+}
+
+show_config() {
+  if [[ ! -r "$CONFIG_FILE" ]]; then
+    printf '未找到配置文件：%s\n' "$CONFIG_FILE"
+    return 0
+  fi
+  sed -E 's/(TG_BOT_TOKEN=").*(")/\1******\2/; s/(BARK_URL=").*(")/\1******\2/' "$CONFIG_FILE"
+}
+
+main() {
+  while true; do
+    cat <<EOF
+
+vps-traffic-guard 菜单
+1) 立即推送综合流量报告
+2) 测试推送通道
+3) 查看当前配置（隐藏密钥）
+4) 升级脚本（保留配置）
+5) 重新配置安装
+6) 退出
+EOF
+    read -r -p "请选择操作 [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in
+      1)
+        "$INSTALL_BIN" --config "$CONFIG_FILE" --report
+        ;;
+      2)
+        "$INSTALL_BIN" --config "$CONFIG_FILE" --test-push
+        ;;
+      3)
+        show_config
+        ;;
+      4)
+        printf '选择 1 即可升级并保留配置。\n'
+        run_installer
+        ;;
+      5)
+        printf '选择 2 即可重新配置并覆盖 vps-traffic-guard 管理的 cron。\n'
+        run_installer
+        ;;
+      6)
+        exit 0
+        ;;
+      *)
+        printf '请输入 1 到 6。\n'
+        ;;
+    esac
+  done
+}
+
+main "$@"
