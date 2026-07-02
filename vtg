@@ -2,14 +2,56 @@
 set -euo pipefail
 
 INSTALL_BIN="/usr/local/bin/vps-traffic-monitor"
+MENU_BIN="/usr/local/bin/vtg"
 CONFIG_FILE="/etc/vps-traffic-monitor.env"
+STATE_DIR_DEFAULT="/var/lib/vps-traffic-monitor"
 INSTALLER_URL="https://raw.githubusercontent.com/ORyong/vps-traffic-guard/master/install.sh"
+CRON_MARK_BEGIN="# BEGIN vps-traffic-guard"
+CRON_MARK_END="# END vps-traffic-guard"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
     printf '错误：缺少命令：%s\n' "$1" >&2
     exit 1
   }
+}
+
+run_as_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    printf '错误：此操作需要 root 权限。请用 root 用户运行，或安装 sudo。\n' >&2
+    exit 1
+  fi
+}
+
+ask_yes_no() {
+  local label="$1"
+  local default_value="$2"
+  local answer=""
+  while true; do
+    read -r -p "$label [$default_value]: " answer
+    answer="${answer:-$default_value}"
+    case "$answer" in
+      y|Y|yes|YES|Yes|是) return 0 ;;
+      n|N|no|NO|No|否) return 1 ;;
+      *) printf '请输入 y 或 n。\n' ;;
+    esac
+  done
+}
+
+run_monitor() {
+  if [[ ! -x "$INSTALL_BIN" ]]; then
+    printf '未找到主命令：%s\n' "$INSTALL_BIN"
+    return 1
+  fi
+  if [[ ! -r "$CONFIG_FILE" ]]; then
+    printf '未找到配置文件：%s\n' "$CONFIG_FILE"
+    return 1
+  fi
+  "$INSTALL_BIN" --config "$CONFIG_FILE" "$@"
 }
 
 run_installer() {
@@ -25,44 +67,129 @@ show_config() {
   sed -E 's/(TG_BOT_TOKEN=").*(")/\1******\2/; s/(BARK_URL=").*(")/\1******\2/' "$CONFIG_FILE"
 }
 
+edit_config() {
+  local editor_cmd="${EDITOR:-}"
+  if [[ -z "$editor_cmd" ]]; then
+    if command -v nano >/dev/null 2>&1; then
+      editor_cmd="nano"
+    elif command -v vi >/dev/null 2>&1; then
+      editor_cmd="vi"
+    else
+      printf '未找到编辑器。请手动编辑：%s\n' "$CONFIG_FILE"
+      return 1
+    fi
+  fi
+  run_as_root "$editor_cmd" "$CONFIG_FILE"
+}
+
+show_cron() {
+  if ! command -v crontab >/dev/null 2>&1; then
+    printf '未找到 crontab 命令。\n'
+    return 1
+  fi
+  crontab -l 2>/dev/null | awk -v begin="$CRON_MARK_BEGIN" -v end="$CRON_MARK_END" '
+    $0 == begin { show = 1 }
+    show == 1 { print }
+    $0 == end { show = 0 }
+  '
+}
+
+show_state() {
+  local state_dir="$STATE_DIR_DEFAULT"
+  if [[ -r "$CONFIG_FILE" ]]; then
+    state_dir="$(awk -F= '$1 == "STATE_DIR" { gsub(/^"|"$/, "", $2); print $2 }' "$CONFIG_FILE" | tail -n 1)"
+    state_dir="${state_dir:-$STATE_DIR_DEFAULT}"
+  fi
+  if [[ ! -d "$state_dir" ]]; then
+    printf '未找到状态目录：%s\n' "$state_dir"
+    return 0
+  fi
+  printf '状态目录：%s\n' "$state_dir"
+  find "$state_dir" -maxdepth 1 -type f -name '*.state' -print 2>/dev/null || true
+}
+
+remove_cron_block() {
+  need_cmd awk
+  if ! command -v crontab >/dev/null 2>&1; then
+    return 0
+  fi
+  local current="" tmp=""
+  current="$(mktemp)"
+  tmp="$(mktemp)"
+  crontab -l > "$current" 2>/dev/null || true
+  awk -v begin="$CRON_MARK_BEGIN" -v end="$CRON_MARK_END" '
+    $0 == begin { skip = 1; next }
+    $0 == end { skip = 0; next }
+    skip != 1 { print }
+  ' "$current" > "$tmp"
+  crontab "$tmp"
+  rm -f "$current" "$tmp"
+}
+
+uninstall_tool() {
+  printf '卸载将删除：\n'
+  printf '  - %s\n' "$INSTALL_BIN"
+  printf '  - %s\n' "$MENU_BIN"
+  printf '  - %s\n' "$CONFIG_FILE"
+  printf '  - vps-traffic-guard 管理的 cron 块\n'
+  printf '不会默认删除流量状态目录：%s\n' "$STATE_DIR_DEFAULT"
+  if ! ask_yes_no '确认卸载？y=卸载，n=取消' 'n'; then
+    printf '已取消卸载。\n'
+    return 0
+  fi
+  remove_cron_block
+  run_as_root rm -f "$INSTALL_BIN" "$CONFIG_FILE"
+  if ask_yes_no '是否同时删除流量状态目录？y=删除，n=保留' 'n'; then
+    run_as_root rm -rf "$STATE_DIR_DEFAULT"
+  fi
+  run_as_root rm -f "$MENU_BIN"
+  printf '卸载完成。\n'
+}
+
 main() {
   while true; do
     cat <<EOF
 
-vps-traffic-guard 菜单
+vps-traffic-guard 控制菜单
 1) 立即推送综合流量报告
-2) 测试推送通道
-3) 查看当前配置（隐藏密钥）
-4) 升级脚本（保留配置）
-5) 重新配置安装
-6) 退出
+2) 立即执行告警检查
+3) 立即推送日报
+4) 立即推送周报
+5) 立即推送月报
+6) 测试推送通道
+7) 查看当前配置（隐藏密钥）
+8) 编辑配置文件
+9) 查看 cron 任务
+10) 查看状态文件
+11) 一键升级（保留配置）
+12) 重新配置安装
+13) 一键卸载
+14) 退出
 EOF
     read -r -p "请选择操作 [1]: " choice
     choice="${choice:-1}"
     case "$choice" in
-      1)
-        "$INSTALL_BIN" --config "$CONFIG_FILE" --report
-        ;;
-      2)
-        "$INSTALL_BIN" --config "$CONFIG_FILE" --test-push
-        ;;
-      3)
-        show_config
-        ;;
-      4)
-        printf '选择 1 即可升级并保留配置。\n'
+      1) run_monitor --report ;;
+      2) run_monitor --check ;;
+      3) run_monitor --daily ;;
+      4) run_monitor --weekly ;;
+      5) run_monitor --monthly ;;
+      6) run_monitor --test-push ;;
+      7) show_config ;;
+      8) edit_config ;;
+      9) show_cron ;;
+      10) show_state ;;
+      11)
+        printf '安装器中选择 1 可升级脚本并保留配置。\n'
         run_installer
         ;;
-      5)
-        printf '选择 2 即可重新配置并覆盖 vps-traffic-guard 管理的 cron。\n'
+      12)
+        printf '安装器中选择 2 可重新配置并覆盖 vps-traffic-guard 管理的 cron。\n'
         run_installer
         ;;
-      6)
-        exit 0
-        ;;
-      *)
-        printf '请输入 1 到 6。\n'
-        ;;
+      13) uninstall_tool ;;
+      14) exit 0 ;;
+      *) printf '请输入 1 到 14。\n' ;;
     esac
   done
 }
