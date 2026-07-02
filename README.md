@@ -10,6 +10,7 @@ monthly reports.
 ## Features
 
 - Bash only, no Python runtime required.
+- One-command interactive installer.
 - Auto-detects the primary network interface.
 - Supports Telegram Bot or Bark push notifications.
 - Sends quota alerts at `ALERT_PERCENT`, default `80`.
@@ -17,7 +18,27 @@ monthly reports.
 - Supports daily, weekly, and monthly reports.
 - Stores only traffic counters and alert state, never push secrets.
 
-## Install
+## One-command install
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/ORyong/vps-traffic-guard/master/install.sh)
+```
+
+The installer asks step by step for:
+
+- VPS display name.
+- Monthly traffic quota in GiB.
+- Alert percentage, such as `80`.
+- Network interface, normally `auto`.
+- Alert check interval.
+- Daily, weekly, and monthly report times.
+- Push channel: Telegram Bot or Bark.
+- Telegram Bot token/chat id or Bark URL.
+
+After installation, it writes `/etc/vps-traffic-monitor.env`, installs
+`/usr/local/bin/vps-traffic-monitor`, tests the push channel, and adds cron jobs.
+
+## Manual install
 
 ```bash
 sudo install -m 755 vps-traffic-monitor.sh /usr/local/bin/vps-traffic-monitor
@@ -50,6 +71,7 @@ vps-traffic-monitor --config /etc/vps-traffic-monitor.env --dry-run --check
 
 Copy `vps-traffic-monitor.env.example` and set:
 
+- `VPS_NAME` for the display name in notifications.
 - `PUSH_CHANNEL=telegram` with `TG_BOT_TOKEN` and `TG_CHAT_ID`.
 - `PUSH_CHANNEL=bark` with `BARK_URL`.
 - `TRAFFIC_LIMIT_GB` for the monthly quota.

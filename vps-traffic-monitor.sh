@@ -8,6 +8,7 @@ MODE=""
 DRY_RUN=0
 
 PUSH_CHANNEL="${PUSH_CHANNEL:-}"
+VPS_NAME="${VPS_NAME:-}"
 TG_BOT_TOKEN="${TG_BOT_TOKEN:-}"
 TG_CHAT_ID="${TG_CHAT_ID:-}"
 BARK_URL="${BARK_URL:-}"
@@ -84,6 +85,7 @@ load_config() {
 
     case "$key" in
       PUSH_CHANNEL) PUSH_CHANNEL="$value" ;;
+      VPS_NAME) VPS_NAME="$value" ;;
       TG_BOT_TOKEN) TG_BOT_TOKEN="$value" ;;
       TG_CHAT_ID) TG_CHAT_ID="$value" ;;
       BARK_URL) BARK_URL="$value" ;;
@@ -153,7 +155,8 @@ validate_config() {
 
   [[ "$IFACE" =~ ^[A-Za-z0-9_.:-]+$ ]] || die "IFACE contains unsafe characters"
   [[ "$STATE_DIR" = /* || "$STATE_DIR" = ~* ]] || die "STATE_DIR must be an absolute path"
-  [[ "$TG_BOT_TOKEN" != *$'\n'* && "$TG_CHAT_ID" != *$'\n'* && "$BARK_URL" != *$'\n'* ]] || die "push settings must not contain newlines"
+  [[ "$VPS_NAME" != *$'\n'* && "$TG_BOT_TOKEN" != *$'\n'* && "$TG_CHAT_ID" != *$'\n'* && "$BARK_URL" != *$'\n'* ]] || die "settings must not contain newlines"
+  [[ "$VPS_NAME" != *\"* ]] || die "VPS_NAME must not contain double quotes"
   [[ "$BARK_URL" != *\"* ]] || die "BARK_URL must not contain double quotes"
   [[ "$TG_BOT_TOKEN" != *\"* ]] || die "TG_BOT_TOKEN must not contain double quotes"
 }
@@ -404,6 +407,10 @@ percent_floor() {
 }
 
 hostname_text() {
+  if [[ -n "$VPS_NAME" ]]; then
+    printf '%s\n' "$VPS_NAME"
+    return 0
+  fi
   hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || printf 'unknown-host'
 }
 
